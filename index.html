@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestão de Estoque - Filiais e CD</title>
+    <!-- Tailwind CSS para um design moderno e limpo -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- SweetAlert2 para caixas de mensagem personalizadas -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <!-- SheetJS para ler o arquivo XLSX -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- Ícones -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100 min-h-screen font-sans">
+
+    <!-- Navbar -->
+    <nav class="bg-indigo-600 text-white p-4 shadow-md">
+        <div class="container mx-auto flex justify-between items-center">
+            <h1 class="text-xl font-bold"><i class="fas fa-boxes mr-2"></i> Gestor de Estoque Corporativo</h1>
+            <div class="space-x-4">
+                <button id="btnCarregarBanco" class="bg-indigo-500 hover:bg-indigo-400 px-4 py-2 rounded shadow transition">
+                    <i class="fas fa-cloud-download-alt"></i> Atualizar do Banco
+                </button>
+                <button id="btnSalvarBanco" class="bg-green-500 hover:bg-green-400 px-4 py-2 rounded shadow transition hidden">
+                    <i class="fas fa-cloud-upload-alt"></i> Salvar Importação no Banco
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mx-auto p-4 mt-6">
+        
+        <!-- Área de Importação do Excel -->
+        <div class="bg-white p-6 rounded-lg shadow-md mb-6">
+            <h2 class="text-lg font-semibold mb-4 text-gray-700">Importar Dados do XLSX</h2>
+            <div class="flex items-center gap-4">
+                <input type="file" id="fileInput" accept=".xlsx, .xls" class="block w-full text-sm text-gray-500
+                    file:mr-4 file:py-2 file:px-4
+                    file:rounded-md file:border-0
+                    file:text-sm file:font-semibold
+                    file:bg-indigo-50 file:text-indigo-700
+                    hover:file:bg-indigo-100 cursor-pointer border border-gray-300 rounded-md
+                "/>
+            </div>
+            <p class="text-sm text-gray-500 mt-2"><i class="fas fa-info-circle"></i> O sistema organizará os produtos automaticamente pelas lojas listadas no arquivo.</p>
+        </div>
+
+        <!-- Área de Exibição dos Dados -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <!-- Sidebar de Filiais -->
+            <div class="md:col-span-1 bg-white rounded-lg shadow-md p-4 max-h-[70vh] overflow-y-auto">
+                <h3 class="font-bold text-gray-700 mb-3 border-b pb-2">Filiais Ativas</h3>
+                <ul id="listaFiliais" class="space-y-2">
+                    <li class="text-gray-500 text-sm italic">Nenhuma filial carregada ainda...</li>
+                </ul>
+            </div>
+
+            <!-- Tabela de Produtos -->
+            <div class="md:col-span-3 bg-white rounded-lg shadow-md p-4">
+                <div class="flex justify-between items-center mb-4 border-b pb-2">
+                    <h3 id="tituloFilialSelecionada" class="font-bold text-xl text-gray-700">Selecione uma filial</h3>
+                    <span id="badgeTotalProdutos" class="bg-indigo-100 text-indigo-800 text-xs font-semibold px-2.5 py-0.5 rounded">0 produtos</span>
+                </div>
+                
+                <div class="overflow-x-auto">
+                    <table class="min-w-full table-auto border-collapse">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Produto</th>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Código / EAN</th>
+                                <th class="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Estoque</th>
+                                <th class="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabelaProdutos" class="divide-y divide-gray-200">
+                            <tr>
+                                <td colspan="4" class="px-4 py-8 text-center text-gray-400">Importe um arquivo ou puxe do banco de dados para visualizar.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Script Principal da Aplicação -->
+    <script type="module">
+        // Importando do Firebase v10+ modular (URL atualizada para a versão mais estável e existente)
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
+        import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-analytics.js";
+        import { getDatabase, ref, set, get, update, push, child } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-database.js";
+
+        // Suas configurações exatas
+        const firebaseConfig = {
+            apiKey: "AIzaSyCEwDKZonaRqLQtZf4_5xSobNOH-bl6jcE",
+            authDomain: "lojinha-virtual-1c7b0.firebaseapp.com",
+            databaseURL: "https://lojinha-virtual-1c7b0-default-rtdb.firebaseio.com",
+            projectId: "lojinha-virtual-1c7b0",
+            storageBucket: "lojinha-virtual-1c7b0.firebasestorage.app",
+            messagingSenderId: "268453804419",
+            appId: "1:268453804419:web:53f66652e1952913031eb6",
+            measurementId: "G-BHE79BZSYY"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const analytics = getAnalytics(app);
+        const db = getDatabase(app);
+
+        // Lista de Filiais Permitidas/Conhecidas
+        const filiaisConhecidas = [
+            "001-AFL", "002-APIACAS", "003-PAR", "004-SORBH", "005-LRVCEN", 
+            "006-MUTUM", "008-LRVVEN", "009-TAPURAH", "010-GTA", "011-PEIXOTO", 
+            "012-SORBR", "013-DNSOR", "014-CD", "015-TNN", "016-DNMUTUM", 
+            "017-DNSINOP", "018-SOR-RDS", "502-CA-GTA-C", "503-CA-SNP-J", 
+            "505-CA-SORRI", "506-CA-SNP-A", "508-CA-MTP-I"
+        ];
+
+        // Estado Global da Aplicação
+        let estoqueGeral = {}; 
+        let filialAtual = null;
+
+        // Elementos DOM
+        const fileInput = document.getElementById('fileInput');
+        const listaFiliais = document.getElementById('listaFiliais');
+        const tabelaProdutos = document.getElementById('tabelaProdutos');
+        const tituloFilialSelecionada = document.getElementById('tituloFilialSelecionada');
+        const badgeTotalProdutos = document.getElementById('badgeTotalProdutos');
+        const btnSalvarBanco = document.getElementById('btnSalvarBanco');
+        const btnCarregarBanco = document.getElementById('btnCarregarBanco');
+
+        // ==== LÓGICA DE IMPORTAÇÃO DE XLSX ====
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (evento) => {
+                try {
+                    const data = new Uint8Array(evento.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const sheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[sheetName];
+                    const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+                    let lojaAtualLoop = null;
+                    let estoqueTemporario = {};
+
+                    for (let i = 0; i < rows.length; i++) {
+                        const row = rows[i];
+                        if (!row || row.length === 0) continue;
+
+                        let col0 = row[0] ? String(row[0]).trim() : "";
+                        if (!col0) continue;
+
+                        // Verifica se é o nome de uma filial (da lista ou padrão 000-NOME)
+                        if (filiaisConhecidas.includes(col0) || /^\d{3}-/.test(col0)) {
+                            lojaAtualLoop = col0;
+                            if (!estoqueTemporario[lojaAtualLoop]) {
+                                estoqueTemporario[lojaAtualLoop] = {};
+                            }
+                            continue;
+                        }
+
+                        // Se já temos uma loja e não é o cabeçalho
+                        if (lojaAtualLoop && col0 !== "Empresa : Produto" && row[1]) {
+                            let produto = col0;
+                            let codigo = String(row[1]).trim();
+                            let qtd = parseFloat(row[2]) || 0;
+                            let ean = row[3] ? String(row[3]).trim() : "";
+                            let sku = row[4] ? String(row[4]).trim() : "";
+                            
+                            // Formata a chave para não dar erro no firebase (remove . # $ [ ])
+                            let key = codigo.replace(/[.#$\[\]]/g, "_");
+
+                            estoqueTemporario[lojaAtualLoop][key] = {
+                                produto, codigo, qtd, ean, sku
+                            };
+                        }
+                    }
+
+                    estoqueGeral = estoqueTemporario;
+                    renderizarMenuFiliais();
+                    btnSalvarBanco.classList.remove('hidden');
+
+                    Swal.fire({
+                        title: 'Importação Concluída!',
+                        text: 'Dados extraídos da planilha. Revise as filiais e clique em "Salvar Importação no Banco" para enviar para nuvem.',
+                        icon: 'success',
+                        confirmButtonColor: '#4f46e5'
+                    });
+
+                } catch (error) {
+                    Swal.fire('Erro!', 'Não foi possível ler o arquivo XLSX.', 'error');
+                    console.error(error);
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        });
+
+        // ==== LÓGICA DE RENDERIZAÇÃO ====
+        function renderizarMenuFiliais() {
+            listaFiliais.innerHTML = '';
+            const filiaisEncontradas = Object.keys(estoqueGeral).sort();
+
+            if (filiaisEncontradas.length === 0) {
+                listaFiliais.innerHTML = '<li class="text-gray-500 text-sm italic">Nenhuma filial com dados encontrada.</li>';
+                return;
+            }
+
+            filiaisEncontradas.forEach(filial => {
+                const li = document.createElement('li');
+                const qtdItems = Object.keys(estoqueGeral[filial]).length;
+                li.innerHTML = `
+                    <button class="w-full text-left px-3 py-2 rounded-md transition ${filialAtual === filial ? 'bg-indigo-100 text-indigo-700 font-bold' : 'hover:bg-gray-100 text-gray-700'}" 
+                            data-filial="${filial}">
+                        <i class="fas ${filial === '014-CD' ? 'fa-building' : 'fa-store'} mr-2"></i> ${filial} 
+                        <span class="float-right text-xs bg-gray-200 px-2 py-1 rounded-full text-gray-600">${qtdItems}</span>
+                    </button>
+                `;
+                li.querySelector('button').addEventListener('click', () => {
+                    filialAtual = filial;
+                    renderizarMenuFiliais(); // Re-renderiza para atualizar visual de selecionado
+                    renderizarTabelaProdutos(filial);
+                });
+                listaFiliais.appendChild(li);
+            });
+
+            // Auto-selecionar a primeira se nada selecionado
+            if (!filialAtual && filiaisEncontradas.length > 0) {
+                filialAtual = filiaisEncontradas[0];
+                renderizarMenuFiliais();
+                renderizarTabelaProdutos(filialAtual);
+            }
+        }
+
+        function renderizarTabelaProdutos(filial) {
+            tituloFilialSelecionada.innerHTML = `<i class="fas ${filial === '014-CD' ? 'fa-building' : 'fa-store'}"></i> Produtos da Filial: <span class="text-indigo-600">${filial}</span>`;
+            
+            const produtos = Object.values(estoqueGeral[filial] || {});
+            badgeTotalProdutos.innerText = `${produtos.length} produtos`;
+            tabelaProdutos.innerHTML = '';
+
+            if (produtos.length === 0) {
+                tabelaProdutos.innerHTML = `<tr><td colspan="4" class="px-4 py-8 text-center text-gray-400">Nenhum produto encontrado.</td></tr>`;
+                return;
+            }
+
+            produtos.forEach(prod => {
+                const tr = document.createElement('tr');
+                tr.classList.add('hover:bg-gray-50');
+                
+                // Formata EAN / SKU caso exista
+                let detalhesCodigo = `<span class="font-semibold">${prod.codigo}</span>`;
+                if(prod.ean) detalhesCodigo += `<br><span class="text-xs text-gray-400">EAN: ${prod.ean}</span>`;
+                if(prod.sku) detalhesCodigo += `<br><span class="text-xs text-gray-400">SKU: ${prod.sku}</span>`;
+
+                tr.innerHTML = `
+                    <td class="px-4 py-3 text-sm text-gray-700">${prod.produto}</td>
+                    <td class="px-4 py-3 text-sm text-gray-600">${detalhesCodigo}</td>
+                    <td class="px-4 py-3 text-center">
+                        <span class="inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none ${prod.qtd > 0 ? 'text-green-800 bg-green-100' : 'text-red-800 bg-red-100'} rounded-full">
+                            ${prod.qtd}
+                        </span>
+                    </td>
+                    <td class="px-4 py-3 text-center">
+                        <button class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 rounded shadow text-sm transition btn-transferir" 
+                                data-codigo="${prod.codigo}">
+                            <i class="fas fa-exchange-alt"></i> Transferir
+                        </button>
+                    </td>
+                `;
+
+                // Evento de Transferência
+                tr.querySelector('.btn-transferir').addEventListener('click', () => abrirModalTransferencia(filial, prod));
+
+                tabelaProdutos.appendChild(tr);
+            });
+        }
+
+        // ==== LÓGICA DE TRANSFERÊNCIA COM SWEETALERT ====
+        window.abrirModalTransferencia = function(filialOrigem, produto) {
+            if (produto.qtd <= 0) {
+                Swal.fire('Estoque Zerado', 'Este produto não tem estoque para transferir.', 'warning');
+                return;
+            }
+
+            // Cria options para as lojas
+            let optionsLojas = filiaisConhecidas.map(f => {
+                if(f === filialOrigem) return ''; // Nao pode transferir para si mesmo
+                return `<option value="${f}" ${f === '014-CD' ? 'selected' : ''}>${f}</option>`;
+            }).join('');
+
+            Swal.fire({
+                title: 'Transferir Estoque',
+                html: `
+                    <div class="text-left mt-2 text-sm text-gray-600">
+                        <p class="mb-2"><strong>Produto:</strong> ${produto.produto}</p>
+                        <p class="mb-4 text-indigo-600 font-bold">Estoque atual na ${filialOrigem}: ${produto.qtd} unidades</p>
+                        
+                        <label class="block mb-1 font-semibold">Destino:</label>
+                        <select id="swal-destino" class="w-full border-gray-300 rounded-md p-2 mb-4 bg-gray-50 border">
+                            ${optionsLojas}
+                        </select>
+                        
+                        <label class="block mb-1 font-semibold">Quantidade a transferir:</label>
+                        <div class="flex gap-2">
+                            <input type="number" id="swal-qtd" class="w-full border-gray-300 rounded-md p-2 bg-gray-50 border" min="1" max="${produto.qtd}" value="1">
+                            <button id="swal-btn-max" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-2 rounded font-bold">Max</button>
+                        </div>
+                    </div>
+                `,
+                showCancelButton: true,
+                confirmButtonColor: '#4f46e5',
+                cancelButtonColor: '#d33',
+                confirmButtonText: 'Confirmar Transferência',
+                cancelButtonText: 'Cancelar',
+                didOpen: () => {
+                    document.getElementById('swal-btn-max').addEventListener('click', () => {
+                        document.getElementById('swal-qtd').value = produto.qtd;
+                    });
+                },
+                preConfirm: () => {
+                    const destino = document.getElementById('swal-destino').value;
+                    const qtdTransferir = parseFloat(document.getElementById('swal-qtd').value);
+                    
+                    if (!destino) return Swal.showValidationMessage('Selecione um destino');
+                    if (isNaN(qtdTransferir) || qtdTransferir <= 0) return Swal.showValidationMessage('Quantidade inválida');
+                    if (qtdTransferir > produto.qtd) return Swal.showValidationMessage('Quantidade maior que o estoque atual');
+                    
+                    return { destino, qtdTransferir };
+                }
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    processarTransferencia(filialOrigem, result.value.destino, produto, result.value.qtdTransferir);
+                }
+            });
+        }
+
+        async function processarTransferencia(origem, destino, produto, qtdTransferida) {
+            try {
+                let dbKey = produto.codigo.replace(/[.#$\[\]]/g, "_");
+                let updates = {};
+
+                // 1. Atualizar o estoque na origem (subtrair)
+                let novaQtdOrigem = produto.qtd - qtdTransferida;
+                updates[`Relatorios/Estoque/${origem}/${dbKey}/qtd`] = novaQtdOrigem;
+                
+                // Atualizar objeto local para UI
+                estoqueGeral[origem][dbKey].qtd = novaQtdOrigem;
+
+                // 2. Atualizar o estoque no destino (somar ou criar)
+                // Checa no banco se já existe no destino para pegar a qtd atual correta (caso o destino não esteja carregado na UI)
+                const snapshotDestino = await get(child(ref(db), `Relatorios/Estoque/${destino}/${dbKey}`));
+                let qtdAtualDestino = 0;
+                if (snapshotDestino.exists()) {
+                    qtdAtualDestino = parseFloat(snapshotDestino.val().qtd) || 0;
+                }
+                
+                let novaQtdDestino = qtdAtualDestino + qtdTransferida;
+                
+                // Grava o item todo no destino para garantir q os dados (nome, ean, sku) vao junto
+                updates[`Relatorios/Estoque/${destino}/${dbKey}`] = {
+                    produto: produto.produto,
+                    codigo: produto.codigo,
+                    ean: produto.ean || "",
+                    sku: produto.sku || "",
+                    qtd: novaQtdDestino
+                };
+
+                // Atualizar objeto local também se a aba de destino estiver aberta no navegador
+                if (!estoqueGeral[destino]) estoqueGeral[destino] = {};
+                estoqueGeral[destino][dbKey] = updates[`Relatorios/Estoque/${destino}/${dbKey}`];
+
+                // 3. Registrar Histórico da Transferência
+                const historicoRef = push(ref(db, 'Relatorios/Transferencias'));
+                updates[`Relatorios/Transferencias/${historicoRef.key}`] = {
+                    data: new Date().toISOString(),
+                    produtoNome: produto.produto,
+                    codigo: produto.codigo,
+                    origem: origem,
+                    destino: destino,
+                    quantidade: qtdTransferida
+                };
+
+                // Executa as atualizações em massa no Firebase
+                await update(ref(db), updates);
+
+                // Re-renderiza a tabela atual para refletir as mudanças locais
+                renderizarTabelaProdutos(origem);
+                renderizarMenuFiliais(); // Atualiza contadores
+
+                Swal.fire({
+                    title: 'Transferido!',
+                    text: `${qtdTransferida} unid. de ${produto.produto} enviadas para ${destino}.`,
+                    icon: 'success',
+                    timer: 2500,
+                    showConfirmButton: false
+                });
+
+            } catch (error) {
+                console.error(error);
+                Swal.fire('Erro!', 'Ocorreu um erro ao transferir no banco de dados.', 'error');
+            }
+        }
+
+        // ==== COMUNICAÇÃO DIRETA COM FIREBASE (CARREGAR E SALVAR) ====
+        
+        btnSalvarBanco.addEventListener('click', async () => {
+            if (Object.keys(estoqueGeral).length === 0) return;
+
+            Swal.fire({
+                title: 'Salvando...',
+                text: 'Enviando dados do Excel para o Firebase.',
+                allowOutsideClick: false,
+                didOpen: () => Swal.showLoading()
+            });
+
+            try {
+                // Salva dentro de Relatorios/Estoque/
+                await update(ref(db, 'Relatorios/Estoque'), estoqueGeral);
+                
+                Swal.fire('Sucesso!', 'Os dados do XLSX foram salvos no banco de dados.', 'success');
+                btnSalvarBanco.classList.add('hidden'); // Esconde após salvar
+
+            } catch (error) {
+                console.error(error);
+                Swal.fire('Erro!', 'Falha ao salvar no Firebase.', 'error');
+            }
+        });
+
+        btnCarregarBanco.addEventListener('click', async () => {
+            Swal.fire({
+                title: 'Carregando...',
+                text: 'Buscando dados salvos no banco...',
+                allowOutsideClick: false,
+                didOpen: () => Swal.showLoading()
+            });
+
+            try {
+                const snapshot = await get(child(ref(db), 'Relatorios/Estoque'));
+                if (snapshot.exists()) {
+                    estoqueGeral = snapshot.val();
+                    filialAtual = null; // Reseta para auto-selecionar a primeira
+                    renderizarMenuFiliais();
+                    Swal.fire('Atualizado!', 'Os dados do banco foram carregados.', 'success');
+                } else {
+                    Swal.fire('Aviso', 'Nenhum dado encontrado no banco de dados. Importe um arquivo XLSX.', 'info');
+                }
+            } catch (error) {
+                console.error(error);
+                Swal.fire('Erro!', 'Não foi possível conectar ao banco de dados.', 'error');
+            }
+        });
+
+        // Tentar carregar banco automaticamente ao iniciar a página
+        window.onload = async () => {
+            try {
+                const snapshot = await get(child(ref(db), 'Relatorios/Estoque'));
+                if (snapshot.exists()) {
+                    estoqueGeral = snapshot.val();
+                    renderizarMenuFiliais();
+                }
+            } catch(e) {
+                console.log("Banco inicialmente vazio ou sem conexão");
+            }
+        };
+
+    </script>
+</body>
+</html>
